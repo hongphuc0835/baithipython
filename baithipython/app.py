@@ -1,8 +1,7 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template, request, redirect, url_for
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
-from dateutil import parser
 
 # Khởi tạo ứng dụng Flask
 app = Flask(__name__)
@@ -12,121 +11,137 @@ cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Hàm thêm bệnh nhân
-def add_patients():
-    patients = []
-    for i in range(3):
-        full_name = input(f"Enter full name for patient {i+1}: ")
-        date_of_birth = input(f"Enter date of birth (YYYY-MM-DD) for patient {i+1}: ")
-        gender = input(f"Enter gender for patient {i+1} (Male/Female): ")
-        address = input(f"Enter address for patient {i+1}: ")
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# Route để thêm bệnh nhân
+@app.route('/add_patient', methods=['GET', 'POST'])
+def add_patient():
+    if request.method == 'POST':
+        full_name = request.form.get('full_name')
+        date_of_birth = request.form.get('date_of_birth')
+        gender = request.form.get('gender')
+        address = request.form.get('address')
+        phone_number = request.form.get('phone_number')
+        email = request.form.get('email')
+
         patient_data = {
             "full_name": full_name,
             "date_of_birth": date_of_birth,
             "gender": gender,
-            "address": address
+            "address": address,
+            "phone_number": phone_number,
+            "email": email
         }
-        patients.append(patient_data)
-        db.collection('patients').add(patient_data)
-    return patients
+        
+        # Lưu bệnh nhân vào Firestore và lấy ID
+        patient_ref = db.collection('patients').add(patient_data)
+        patient_id = patient_ref.id  # Lấy ID của bệnh nhân vừa tạo
 
-# Hàm thêm bác sĩ
-def add_doctors():
-    doctors = []
-    for i in range(5):
-        full_name = input(f"Enter full name for doctor {i+1}: ")
-        specialization = input(f"Enter specialization for doctor {i+1}: ")
-        phone_number = input(f"Enter phone number for doctor {i+1}: ")
-        email = input(f"Enter email for doctor {i+1}: ")
-        years_of_experience = int(input(f"Enter years of experience for doctor {i+1}: "))
+        return redirect(url_for('index'))
+
+    return render_template('add_patient.html')
+
+# Route để thêm bác sĩ
+@app.route('/add_doctor', methods=['GET', 'POST'])
+def add_doctor():
+    if request.method == 'POST':
+        full_name = request.form.get('full_name')
+        specialization = request.form.get('specialization')
+        phone_number = request.form.get('phone_number')
+        email = request.form.get('email')
+        years_of_experience = request.form.get('years_of_experience')
+
         doctor_data = {
             "full_name": full_name,
             "specialization": specialization,
             "phone_number": phone_number,
             "email": email,
-            "years_of_experience": years_of_experience
+            "years_of_experience": int(years_of_experience)
         }
-        doctors.append(doctor_data)
-        db.collection('doctors').add(doctor_data)
-    return doctors
+        
+        # Lưu bác sĩ vào Firestore và lấy ID
+        doctor_ref = db.collection('doctors').add(doctor_data)
+        doctor_id = doctor_ref.id  # Lấy ID của bác sĩ vừa tạo
 
-# Hàm thêm lịch hẹn
-def add_appointments():
-    appointments = []
-    for i in range(3):
-        patient_id = input(f"Enter patient ID for appointment {i+1}: ")
-        doctor_id = input(f"Enter doctor ID for appointment {i+1}: ")
-        appointment_date = input(f"Enter appointment date and time (YYYY-MM-DD HH:MM): ")
-        reason = input(f"Enter reason for appointment {i+1}: ")
+        return redirect(url_for('index'))
+
+    return render_template('add_doctor.html')
+
+# Route để thêm cuộc hẹn
+@app.route('/add_appointment', methods=['GET', 'POST'])
+def add_appointment():
+    # Lấy danh sách bệnh nhân và bác sĩ từ Firestore
+    patients_ref = db.collection('patients').stream()
+    doctors_ref = db.collection('doctors').stream()
+
+    # Tạo danh sách bệnh nhân
+    patients = [{"id": patient.id, **patient.to_dict()} for patient in patients_ref]
+    # Tạo danh sách bác sĩ
+    doctors = [{"id": doctor.id, **doctor.to_dict()} for doctor in doctors_ref]
+
+    if request.method == 'POST':
+        patient_id = request.form.get('patient_id')
+        doctor_id = request.form.get('doctor_id')
+        appointment_date = request.form.get('appointment_date')
+        reason = request.form.get('reason')
+
+        if not all([patient_id, doctor_id, appointment_date, reason]):
+            return "Please provide all required fields."
+
+        try:
+            # Convert appointment_date from string to datetime object
+            appointment_date = datetime.strptime(appointment_date, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            return "Invalid date format. Please use 'YYYY-MM-DDTHH:MM'"
+
+        # Prepare the data to insert into Firestore
         appointment_data = {
             "patient_id": patient_id,
             "doctor_id": doctor_id,
-            "appointment_date": parser.parse(appointment_date),
+            "appointment_date": appointment_date.strftime('%Y-%m-%d %H:%M'),  # Convert to string
             "reason": reason,
             "status": "pending"
         }
-        appointments.append(appointment_data)
-        db.collection('appointments').add(appointment_data)
-    return appointments
 
-# Tạo báo cáo các lịch hẹn
-@app.route('/generate_report', methods=['GET'])
-def generate_report():
+        # Add appointment data to Firestore
+        db.collection('appointments').add(appointment_data)
+        return redirect(url_for('index'))
+
+    return render_template('add_appointment.html', patients=patients, doctors=doctors)
+
+
+# Route để tạo báo cáo
+@app.route('/report')
+def report():
     appointments_ref = db.collection('appointments')
     patients_ref = db.collection('patients')
     doctors_ref = db.collection('doctors')
 
     appointments = appointments_ref.stream()
     report = []
+
     for appointment in appointments:
         appointment_data = appointment.to_dict()
-        patient = patients_ref.document(appointment_data['patient_id']).get().to_dict()
-        doctor = doctors_ref.document(appointment_data['doctor_id']).get().to_dict()
-        
-        report.append({
-            "patient_name": patient['full_name'],
-            "birthday": patient['date_of_birth'],
-            "gender": patient['gender'],
-            "address": patient['address'],
-            "doctor_name": doctor['full_name'],
-            "reason": appointment_data.get('reason'),
-            "date": appointment_data['appointment_date'].strftime('%Y-%m-%d %H:%M')
-        })
+        patient_doc = patients_ref.document(appointment_data['patient_id']).get()
+        doctor_doc = doctors_ref.document(appointment_data['doctor_id']).get()
 
-    return jsonify(report), 200
+        patient = patient_doc.to_dict() if patient_doc.exists else None
+        doctor = doctor_doc.to_dict() if doctor_doc.exists else None
 
-# Lấy tất cả các lịch hẹn trong ngày hôm nay
-@app.route('/get_today_appointments', methods=['GET'])
-def get_today_appointments():
-    today = datetime.now().date()
-    appointments_ref = db.collection('appointments')
-    patients_ref = db.collection('patients')
-    doctors_ref = db.collection('doctors')
+        if patient and doctor:
+            report.append({
+                "patient_name": patient['full_name'],
+                "birthday": patient['date_of_birth'],
+                "gender": patient['gender'],
+                "address": patient['address'],
+                "doctor_name": doctor['full_name'],
+                "reason": appointment_data['reason'],
+                "date": appointment_data['appointment_date']
+            })
 
-    appointments = appointments_ref.where('appointment_date', '>=', today).stream()
-    today_appointments = []
-    for appointment in appointments:
-        appointment_data = appointment.to_dict()
-        patient = patients_ref.document(appointment_data['patient_id']).get().to_dict()
-        doctor = doctors_ref.document(appointment_data['doctor_id']).get().to_dict()
+    return render_template('report.html', report=report)
 
-        today_appointments.append({
-            "address": patient['address'],
-            "patient_name": patient['full_name'],
-            "birthday": patient['date_of_birth'],
-            "gender": patient['gender'],
-            "doctor_name": doctor['full_name'],
-            "status": appointment_data.get('status', 'pending')
-        })
-
-    return jsonify(today_appointments), 200
-
-# Chạy Flask server
-if __name__ == "__main__":
-    print("Adding patients...")
-    add_patients()
-    print("Adding doctors...")
-    add_doctors()
-    print("Adding appointments...")
-    add_appointments()
+if __name__ == '__main__':
     app.run(debug=True)
