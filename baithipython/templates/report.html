@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report</title>
+</head>
+<body>
+    <h1>Appointments Report</h1>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>No</th>
+                <th>Patient Name</th>
+                <th>Birthday</th>
+                <th>Gender</th>
+                <th>Address</th>
+                <th>Doctor Name</th>
+                <th>Reason</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in report %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ item.patient_name }}</td>
+                <td>{{ item.birthday }}</td>
+                <td>{{ item.gender }}</td>
+                <td>{{ item.address }}</td>
+                <td>{{ item.doctor_name }}</td>
+                <td>{{ item.reason }}</td>
+                <td>{{ item.date }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <a href="/">Back to Home</a>
+</body>
+</html>
